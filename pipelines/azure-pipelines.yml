@@ -9,7 +9,7 @@ pr:
       - main
 
 pool:
-  name: Azure-Infra-Pool
+  name: Default
 
 variables:
   terraformWorkingDirectory: '$(Build.SourcesDirectory)/terraform'
