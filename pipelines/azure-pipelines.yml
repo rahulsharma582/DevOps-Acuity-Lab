@@ -1,0 +1,94 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  name: Azure-Infra-Pool
+
+variables:
+  terraformWorkingDirectory: '$(Build.SourcesDirectory)/terraform'
+
+stages:
+  - stage: Terraform_CI
+    displayName: Terraform Validation and Security
+    jobs:
+      - job: ValidateAndScan
+        displayName: Format, Validate, TFLint and Checkov
+        steps:
+          - checkout: self
+
+          - task: PowerShell@2
+            displayName: Terraform Format and Validate
+            inputs:
+              targetType: inline
+              script: |
+                $ErrorActionPreference = "Stop"
+                Set-Location "$(terraformWorkingDirectory)"
+
+                terraform version
+                terraform fmt -check -recursive
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Terraform formatting check failed."
+                }
+
+                terraform init -backend=false -input=false
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Terraform init failed."
+                }
+
+                terraform validate
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Terraform validation failed."
+                }
+
+          - task: PowerShell@2
+            displayName: TFLint
+            inputs:
+              targetType: inline
+              script: |
+                $ErrorActionPreference = "Stop"
+                Set-Location "$(terraformWorkingDirectory)"
+
+                tflint --version
+                tflint --init
+                if ($LASTEXITCODE -ne 0) {
+                  throw "TFLint initialization failed."
+                }
+
+                tflint
+                if ($LASTEXITCODE -ne 0) {
+                  throw "TFLint found issues."
+                }
+
+          - task: PowerShell@2
+            displayName: Checkov Security Scan
+            inputs:
+              targetType: inline
+              script: |
+                $ErrorActionPreference = "Stop"
+                Set-Location "$(terraformWorkingDirectory)"
+
+                $checkov = Get-Command checkov -ErrorAction SilentlyContinue
+                if ($checkov) {
+                  checkov -d . --framework terraform
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Checkov security scan failed."
+                  }
+                }
+                else {
+                  $checkovCmd = Join-Path $env:LOCALAPPDATA "Python\pythoncore-3.14-64\Scripts\checkov.cmd"
+                  if (-not (Test-Path $checkovCmd)) {
+                    throw "Checkov was not found. Install it or configure its executable path."
+                  }
+
+                  & $checkovCmd -d . --framework terraform
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Checkov security scan failed."
+                  }
+                }
